@@ -24,27 +24,78 @@ N <- 5e5
                                         # it is known that the intercept coefficient is zero
                                         # so that the regression only needs to estimate p regression coefficients.
 
-
-                                        
                                         # returns a sample of size n in p independent covariable dimensions, and a response
                                         # first column contains the Y observations
                                         # other columns contain the X observations
 draw <- function(n, p)
     cbind(rnorm(n), matrix(rnorm(n * p, 0, p), nrow=n))
 
-
-
 ## mean(replicate(1e6,boundedGamma(g=5,draw(n=6,p=3))))
 ## [1] 0.4837652
+
+cIJiang <- function(data, conf.level=.95, kernelFunction, B=1e3) {
+    n <- nrow(data)
+    bootstrapSamples <- replicate(B, sample(n, replace=TRUE))
+                                        # counts how often each observation is contained in each bootstrap sample
+    m <- apply(bootstrapSamples, 2, function(x) sapply(1:n, function (j) sum(j == x)))
+                                        # bccb is a vector of length B
+    bccb <- apply(
+                                        # returns a matrix of dim B times n
+        sapply(
+            1:n,
+                                        # this function returns a vector of length B, containing the value of the loss function on each bootstrap sample, for the leftOutIndex as the test index
+            function(leftOutIndex) {
+                trainingSets <- apply(bootstrapSamples, 2, function(x) x[x != leftOutIndex])
+                m[leftOutIndex, ] * unlist(
+                                        lapply(
+                                            trainingSets,
+                                            function(ts)
+                                                kernelFunction(
+                                                    g = length(ts),
+                                                    data=rbind(data[ts, ], data[leftOutIndex, ])
+                                                )
+                                        )
+                                    )
+            }
+        ),
+        1,
+        mean
+    )
+                                        # uncorrected bootstrap point estimate of the error
+    bccv <- mean(bccb)
+                                        # upper limit
+    bccvpUpper <- sort(bccb)[floor(B*(1 - (1-conf.level)/2))]
+                                        # point estimate
+    point <- sort(bccb)[floor(B*.5)]
+                                        # lower limit
+    bccvpLower <- sort(bccb)[max(1, floor(B*(1-conf.level)/2))]
+
+
+                                        # Jiang's correction
+                                        # usual loo point estimate of the error
+    loocv <- mean(
+        sapply(
+            1:n,
+            function(i)
+                kernelFunction(g=n-1, data=data[c((1:n)[-i], i), ])
+        )
+    )
+    
+                                        # corrected upper bound
+    cub <- bccvpUpper - bccv + loocv
+                                        # corrected point estimate
+    cpe <- point - bccv + loocv
+                                        # corrected lower bound
+    clb <- bccvpLower - bccv + loocv
+    return(c(clb, cpe, cub))
+}
+
 
 boundedGamma <- function(g, data) {
     stopifnot(nrow(data) == g + 1)
     coef <- fastLmPure(as.matrix(data[1:g, -1]), data[1:g, 1])$coefficients
     atan(as.numeric(data[g + 1, 1] - (sum(coef * data[g + 1, -1])))^2)*2/pi
 }
-
-
-
 
                                         # this function takes a sample of size n and returns two elementary estimators of the error rate, on two non-overlapping random subsamples
 GammaPair <- function(g, data, kernelFunction) {
@@ -66,69 +117,47 @@ GammaPair <- function(g, data, kernelFunction) {
 
 
 
-cIJiang <- function(data, conf.level=.95, kernelFunction, B=1e3) {
-    n <- nrow(data)
-    bootstrapSamples <- replicate(B, sample(n, replace=TRUE))
-                                        # counts how often each observation is contained in each bootstrap sample
-    m <- apply(bootstrapSamples, 2, function(x) sapply(1:n, function (j) sum(j == x)))
-                                        # bccb is a vector of length B
-    bccb <- apply(
-                                        # returns a matrix of dim B times n
-        sapply(
-            1:n,
-                                        # this function returns a vector of length B, containing the value of the loss function on each bootstrap sample, for the leftOutIndex as the test index
-            function(leftOutIndex) {
-                trainingSets <- apply(bootstrapSamples, 2, function(x) x[x != leftOutIndex])
-                m[leftOutIndex, ] * unlist(
-                    lapply(
-                        trainingSets,
-                        function(ts)
-                            kernelFunction(
-                            g = length(ts),
-                            data=rbind(data[ts, ], data[leftOutIndex, ])
-                            )
-                        )
-                    )
-            }
-            ),
-        1,
-        mean
-        )
-                                        # uncorrected bootstrap point estimate of the error
-    bccv <- mean(bccb)
-                                        # upper limit
-    bccvpUpper <- sort(bccb)[floor(B*(1 - (1-conf.level)/2))]
-                                        # point estimate
-    point <- sort(bccb)[floor(B*.5)]
-                                        # lower limit
-    bccvpLower <- sort(bccb)[max(1, floor(B*(1-conf.level)/2))]
-
-
-
-                                        # Jiang's correction
-                                        # usual loo point estimate of the error
-    loocv <- mean(
-        sapply(
-            1:n,
-            function(i)
-            kernelFunction(g=n-1, data=data[c((1:n)[-i], i), ])
-            )
-        )
- 
-                                        # corrected upper bound
-    cub <- bccvpUpper - bccv + loocv
-                                        # corrected point estimate
-    cpe <- point - bccv + loocv
-                                        # corrected lower bound
-    clb <- bccvpLower - bccv + loocv
-                         
-    return(c(clb, cpe, cub))
+                                        # stack overflow content from https://stackoverflow.com/questions/30542128/circular-shifting-arrays-in-r-by-distance-n
+                                        # licensed as (CC BY-SA 4.0) ....
+shifter <- function(x) {
+    if (n == 0) x else c(tail(x, -n), head(x, n))
 }
 
 
+                                        # this function takes a sample of size n and returns two elementary estimators of the error rate, on two random subsamples overlapping on one but not more observations
+GammaPairOverlapOne <- function(g, data, kernelFunction) {
+    n <- nrow(data)
+    
+    stopifnot(n >= 2 * g + 2)
+    indices <- sample(n, 2 * (g + 1))
 
-
-
+                                        # the symmetrized kernel on the indices 1:(g+1)
+    evaluationOne  <- 0
+    indicesOne  <- indices[1:(g+1), ]
+    
+    for (i in 0:g) {
+        cyclicallyShiftedIndices  <- shifter(indicesOne, i)
+        evaluationOne  <- evaluationOne + kernelFunction(
+                                              g=g,
+                                              data=data[cyclicallyShiftedIndices, ]
+                                          )
+    }
+    evaluationOne  <- evaluationOne / (g+1)
+    
+    evaluationTwo  <- 0
+                                        # here, we start at g+1, so we use exactly one observation from evaluationOne again
+    indicesTwo  <- indices[(g+1):(2 * g + 1), ]
+    for (i in 0:g) {
+        cyclicallyShiftedIndices  <- shifter(indicesTwo, i)
+        evaluationTwo  <- evaluationOne + kernelFunction(
+                                              g=g,
+                                              data=data[cyclicallyShiftedIndices, ]
+                                          )
+    }
+    evaluationTwo  <- evaluationTwo / (g+1)
+    
+    c(evaluationOne, evaluationTwo)
+}
 
                                         # the confidence interval for the mean
 cI <- function(g, data, N, conf.level=.95, kernelFunction) {
@@ -154,7 +183,7 @@ cI <- function(g, data, N, conf.level=.95, kernelFunction) {
     meanhat <- mean(as.vector(mcresults))
     vhat <- meanhat^2 - mean(mcresults[1, ] * mcresults[2, ])
     
-#    if (kernelFunction == Gamma) cat(paste("True error is", 1 + p/(g - p - 1)), "\n")
+                                        #    if (kernelFunction == Gamma) cat(paste("True error is", 1 + p/(g - p - 1)), "\n")
     return(
         c(
             meanhat - q * sqrt(vhat),
@@ -163,6 +192,59 @@ cI <- function(g, data, N, conf.level=.95, kernelFunction) {
         )
     )
 }
+
+                                        # the confidence interval for the mean, using the u(n) part ii from the paper, as suggested by the referee
+cIunii <- function(g, data, N, conf.level=.95, kernelFunction) {
+    n <- nrow(data)
+    p <- ncol(data) - 1
+
+    stopifnot(g <= (n + 2)/2)
+    alpha <- 1 - conf.level
+
+                                        # qt(1-alpha/2, df=n-1)
+    q <- qnorm(1 - alpha/2)
+
+    mcresults <- replicate(
+        N,
+        GammaPair(
+            g=g,
+            data=data,
+            kernelFunction=kernelFunction
+        )
+    )
+
+    mcresultsOverlapOne <- replicate(
+        N,
+        GammaPairOverlapOne(
+            g=g,
+            data=data,
+            kernelFunction=kernelFunction
+        )
+    )
+
+                                        # the U statistic itself is just computed by averaging as many Gamma evaluations as possible
+    meanhat <- mean(c(as.vector(mcresults)))
+
+                                        # to estimate kappa_1, we need to average out a lot of evaluations of the product of two symmetrized kernels with overlap one
+    vhat <- mean(mcresultsOverlapOne[1, ] * mcresultsOverlapOne[2, ]) - mean(mcresults[1, ] * mcresults[2, ])
+    
+                                        #    if (kernelFunction == Gamma) cat(paste("True error is", 1 + p/(g - p - 1)), "\n")
+    return(
+        c(
+            meanhat - q * sqrt(vhat),
+            meanhat,
+            meanhat + q * sqrt(vhat)
+        )
+    )
+}
+
+
+
+
+
+
+
+
 
 
 ## to approximate the true error
@@ -220,7 +302,7 @@ simulationResults <- t(
 
             sple <- draw(n=n, p=p)
             interval <- cI(g=g, data=sple, N=N, kernelFunction=boundedGamma)
-           # intervalJiang <- cIJiang(data=sple, kernelFunction=boundedGamma, B=1e4)
+                                        # intervalJiang <- cIJiang(data=sple, kernelFunction=boundedGamma, B=1e4)
 
             if (any(is.na(interval)))
                 warning("NAs produced. You should choose a higher N!")
@@ -238,15 +320,15 @@ simulationResults <- t(
                                         # our upper
                                         # their upper
 
-#            line <- paste(i, n, paste(interval, intervalJiang, collapse=" "))
+                                        #            line <- paste(i, n, paste(interval, intervalJiang, collapse=" "))
 
             line <-  paste(i, n, paste(interval, collapse=" "))
             
             write(line, file="aggregateOurIntg13.csv", append=TRUE)
             interval
         }
-        )
     )
+)
 
 
 
@@ -267,5 +349,5 @@ simulationResultsJiangWithnEqualg <- t(
             write(line, file="aggregateJiangg13.csv", append=TRUE)
             intervalJiang2
         }
-        )
     )
+)
