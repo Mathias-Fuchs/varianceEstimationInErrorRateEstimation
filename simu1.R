@@ -2,7 +2,7 @@ library(RcppArmadillo)
 library(snowfall)
 
                                         # initialize parallelization
-sfInit(parallel=TRUE, cpus=50, type='MPI')
+sfInit(parallel=FALSE, cpus=50, type='MPI')
 sfLibrary(RcppArmadillo)
 
 
@@ -119,43 +119,38 @@ GammaPair <- function(g, data, kernelFunction) {
 
                                         # stack overflow content from https://stackoverflow.com/questions/30542128/circular-shifting-arrays-in-r-by-distance-n
                                         # licensed as (CC BY-SA 4.0) ....
-shifter <- function(x) {
+shifter <- function(x, n) {
     if (n == 0) x else c(tail(x, -n), head(x, n))
 }
 
 
                                         # this function takes a sample of size n and returns two elementary estimators of the error rate, on two random subsamples overlapping on one but not more observations
-GammaPairOverlapOne <- function(g, data, kernelFunction) {
+GammaPairOverlapOne <- function(g, data, kernelFunction, overlapsize=1) {
     n <- nrow(data)
     
     stopifnot(n >= 2 * g + 2)
+                                        # replace is FALSE by default
     indices <- sample(n, 2 * (g + 1))
-
-                                        # the symmetrized kernel on the indices 1:(g+1)
-    evaluationOne  <- 0
-    indicesOne  <- indices[1:(g+1), ]
-    
-    for (i in 0:g) {
-        cyclicallyShiftedIndices  <- shifter(indicesOne, i)
-        evaluationOne  <- evaluationOne + kernelFunction(
-                                              g=g,
-                                              data=data[cyclicallyShiftedIndices, ]
-                                          )
-    }
-    evaluationOne  <- evaluationOne / (g+1)
-    
-    evaluationTwo  <- 0
+    indicesOne  <- indices[1:(g+1)]
                                         # here, we start at g+1, so we use exactly one observation from evaluationOne again
-    indicesTwo  <- indices[(g+1):(2 * g + 1), ]
-    for (i in 0:g) {
-        cyclicallyShiftedIndices  <- shifter(indicesTwo, i)
-        evaluationTwo  <- evaluationOne + kernelFunction(
-                                              g=g,
-                                              data=data[cyclicallyShiftedIndices, ]
-                                          )
-    }
-    evaluationTwo  <- evaluationTwo / (g+1)
-    
+    indicesTwo  <- indices[(g+1 - overlapsize + 1):(2 * g + 1  - overlapsize + 1)]    
+
+                                        # the symmetrized kernel on the indices indicesOne
+    evaluationOne <- mean(sapply(0:g, function(i) 
+        kernelFunction(
+            g=g,
+            data=data[shifter(indicesOne, i), ]
+        )
+        )
+        )
+    evaluationTwo <- mean(sapply(0:g, function(i) 
+        kernelFunction(
+            g=g,
+            data=data[shifter(indicesTwo, i), ]
+        )
+        )
+        )
+
     c(evaluationOne, evaluationTwo)
 }
 
@@ -203,25 +198,25 @@ cIunii <- function(g, data, N, conf.level=.95, kernelFunction) {
 
     stopifnot(g <= (n + 2)/2)
     alpha <- 1 - conf.level
-
                                         # qt(1-alpha/2, df=n-1)
     q <- qnorm(1 - alpha/2)
 
-    mcresults <- replicate(
-        N,
-        GammaPair(
-            g=g,
-            data=data,
-            kernelFunction=kernelFunction
-        )
-    )
+    ## mcresults <- replicate(
+    ##     N,
+    ##     GammaPair(
+    ##         g=g,
+    ##         data=data,
+    ##         kernelFunction=kernelFunction
+    ##     )
+    ## )
 
     mcresultsOverlapOne <- replicate(
         N,
         GammaPairOverlapOne(
             g=g,
             data=data,
-            kernelFunction=kernelFunction
+            kernelFunction=kernelFunction,
+            overlapsize=1
         )
     )
 
@@ -229,8 +224,12 @@ cIunii <- function(g, data, N, conf.level=.95, kernelFunction) {
     meanhat <- mean(c(as.vector(mcresults)))
 
                                         # to estimate kappa_1, we need to average out a lot of evaluations of the product of two symmetrized kernels with overlap one
-    vhat <- (g + 1) * (g + 1) / n * (mean(mcresultsOverlapOne[1, ] * mcresultsOverlapOne[2, ]) - mean(mcresults[1, ] * mcresults[2, ]))
+                                        # the difference term is the estimated covariance between two evaluations of the symmetrized kernel on sets with overlap one
     
+    # vhat <- (g + 1)^2 / n * (mean(mcresultsOverlapOne[1, ] * mcresultsOverlapOne[2, ]) - mean(mcresults[1, ] * mcresults[2, ]))
+                                        # an alternative
+    vhat <- (g + 1)^2 / n * cov(mcresultsOverlapOne[1, ], mcresultsOverlapOne[2, ])
+
                                         #    if (kernelFunction == Gamma) cat(paste("True error is", 1 + p/(g - p - 1)), "\n")
     return(
         c(
