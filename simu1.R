@@ -181,6 +181,9 @@ cI <- function(g, data, N, conf.level=.95, kernelFunction) {
     )
 
     meanhat <- mean(as.vector(mcresults))
+
+
+                                        # note that since we use the "immediate trick", we do not have to divide by n here
     vhat <- meanhat^2 - mean(mcresults[1, ] * mcresults[2, ])
     
                                         #    if (kernelFunction == Gamma) cat(paste("True error is", 1 + p/(g - p - 1)), "\n")
@@ -226,7 +229,7 @@ cIunii <- function(g, data, N, conf.level=.95, kernelFunction) {
     meanhat <- mean(c(as.vector(mcresults)))
 
                                         # to estimate kappa_1, we need to average out a lot of evaluations of the product of two symmetrized kernels with overlap one
-    vhat <- mean(mcresultsOverlapOne[1, ] * mcresultsOverlapOne[2, ]) - mean(mcresults[1, ] * mcresults[2, ])
+    vhat <- (g + 1) * (g + 1) / n * (mean(mcresultsOverlapOne[1, ] * mcresultsOverlapOne[2, ]) - mean(mcresults[1, ] * mcresults[2, ]))
     
                                         #    if (kernelFunction == Gamma) cat(paste("True error is", 1 + p/(g - p - 1)), "\n")
     return(
