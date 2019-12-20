@@ -201,14 +201,14 @@ cIunii <- function(g, data, N, conf.level=.95, kernelFunction) {
                                         # qt(1-alpha/2, df=n-1)
     q <- qnorm(1 - alpha/2)
 
-    ## mcresults <- replicate(
-    ##     N,
-    ##     GammaPair(
-    ##         g=g,
-    ##         data=data,
-    ##         kernelFunction=kernelFunction
-    ##     )
-    ## )
+    mcresults <- replicate(
+        N,
+        GammaPair(
+            g=g,
+            data=data,
+            kernelFunction=kernelFunction
+        )
+    )
 
     mcresultsOverlapOne <- replicate(
         N,
