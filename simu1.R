@@ -189,14 +189,14 @@ cIunii <- function(g, data, N, conf.level=.95, kernelFunction) {
                                         # qt(1-alpha/2, df=n-1)
     q <- qnorm(1 - alpha/2)
 
-    ## mcresults <- replicate(
-    ##     N,
-    ##     GammaPair(
-    ##         g=g,
-    ##         data=data,
-    ##         kernelFunction=kernelFunction
-    ##     )
-    ## )
+    mcresults <- replicate(
+        N,
+        GammaPair(
+            g=g,
+            data=data,
+            kernelFunction=kernelFunction
+        )
+    )
 
     mcresultsOverlapOne <- replicate(
         N,
@@ -209,7 +209,7 @@ cIunii <- function(g, data, N, conf.level=.95, kernelFunction) {
     )
 
                                         # the U statistic itself is just computed by averaging as many Gamma evaluations as possible
-    meanhat <- mean(c(as.vector(mcresultsOverlapOne)))
+    meanhat <- mean(c(as.vector(mcresults)))
 
                                         # to estimate kappa_1, we need to average out a lot of evaluations of the product of two symmetrized kernels with overlap one
                                         # the difference term is the estimated covariance between two evaluations of the symmetrized kernel on sets with overlap one
