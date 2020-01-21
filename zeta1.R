@@ -29,6 +29,7 @@ GammaPairOverlapOne <- function(g, data, kernelFunction, overlapsize=1) {
     c(evaluationOne, evaluationTwo)
 }
 g <- 13
+p <- 3
 for (n in c(30, 35, 40, 50)) {
     data <- draw(n, p)
     d <- replicate(1e5, GammaPairOverlapOne(g, data, boundedGamma))
